@@ -46,7 +46,7 @@ func main() {
 	flightHandler := flight.NewHandler(flightService)
 	bookingHandler := booking.NewHandler(bookingService)
 	passengerHandler := passenger.NewHandler(passengerService)
-	opsHandler := airportops.NewHandler(opsService) // You'll need to create this handler file similar to others
+	opsHandler := airportops.NewHandler(opsService)
 
 	// 5. Router (Standard Mux)
 	router := http.NewServeMux()
@@ -58,16 +58,18 @@ func main() {
 
 	// Booking Routes
 	router.HandleFunc("POST /bookings", bookingHandler.Create)
-	router.HandleFunc("GET /bookings/details", bookingHandler.GetFullDetails) // The Goroutine endpoint
+	router.HandleFunc("GET /bookings/details", bookingHandler.GetDetails) // The Goroutine endpoint
+	router.HandleFunc("POST /bookings/cancel", bookingHandler.Cancel)
 
 	// Passenger Routes
 	router.HandleFunc("POST /passengers", passengerHandler.Create)
 	router.HandleFunc("GET /passengers", passengerHandler.Get)
 
 	// Ops Routes
-	// router.HandleFunc("POST /gates/assign", opsHandler.AssignGate) // Implement Handler first
+	router.HandleFunc("POST /gates", opsHandler.CreateGate)
+	router.HandleFunc("POST /gates/assign", opsHandler.AssignGate)
 
-	// 6. Start Server
+	// Start Server
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: router,

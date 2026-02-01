@@ -2,8 +2,10 @@ package booking
 
 import (
 	"encoding/json"
+	"initial-airport-management-system/internal/flight"
 	"net/http"
 	"strconv"
+	"sync"
 )
 
 type Handler struct {
@@ -19,6 +21,7 @@ type BookRequest struct {
 	PassengerID int64 `json:"passenger_id"`
 }
 
+// Create handles POST /bookings
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	var req BookRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -28,8 +31,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	ticket, err := h.service.BookTicket(r.Context(), req.FlightID, req.PassengerID)
 	if err != nil {
-		// Production Note: Don't leak internal DB errors.
-		// Log the real error, return a generic message to user.
 		http.Error(w, "Failed to book ticket: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -39,76 +40,81 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(ticket)
 }
 
-// GetFullDetails fetches Ticket + Flight + Passenger data.
-func (h *Handler) GetFullDetails(w http.ResponseWriter, r *http.Request) {
-	// Parse Ticket ID
+// Cancel handles POST /bookings/cancel?id=1
+func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
-	// ... simple parsing logic ...
-	id, _ := strconv.ParseInt(idStr, 10, 64)
-
-	ctx := r.Context()
-
-	// Fetch Ticket (We need this first to know WHICH flight/passenger to fetch)
-	ticket, err := h.service.GetTicket(ctx, id)
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		http.Error(w, "ticket not found", http.StatusNotFound)
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
 		return
 	}
 
-	// Define the Result Structure
-	type Response struct {
-		Ticket    *Ticket  `json:"ticket"`
-		Flight    any      `json:"flight"`
-		Passenger any      `json:"passenger"`
-		Errors    []string `json:"errors,omitempty"`
+	if err := h.service.CancelTicket(r.Context(), id); err != nil {
+		http.Error(w, "Failed to cancel ticket: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-	resp := Response{Ticket: ticket}
 
-	// Parallel Fetching using Channels
-	// We create buffered channels to prevent blocking if we exit early
-	flightChan := make(chan any, 1)
-	passChan := make(chan any, 1)
-	errChan := make(chan error, 2)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"cancelled"}`))
+}
 
-	// Goroutine A: Fetch Flight
+// BookingDetailsResponse aggregates data from different sources
+type BookingDetailsResponse struct {
+	Ticket *Ticket        `json:"ticket"`
+	Flight *flight.Flight `json:"flight,omitempty"`
+}
+
+// GetDetails handles GET /bookings/details?id=1
+// It demonstrates using Goroutines to fetch related data (Flight) in parallel.
+func (h *Handler) GetDetails(w http.ResponseWriter, r *http.Request) {
+	// Parse ID
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Fetch Ticket (Synchronous - we need this to know WHICH flight to fetch)
+	ticket, err := h.service.GetTicket(ctx, id)
+	if err != nil {
+		http.Error(w, "Ticket not found", http.StatusNotFound)
+		return
+	}
+
+	resp := BookingDetailsResponse{Ticket: ticket}
+
+	// Parallel Fetching: Fetch Flight data in a Goroutine
+	// Since BookingService has access to FlightRepo, we can use it.
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// Channel to capture errors from goroutines
+	errChan := make(chan error, 1)
+
 	go func() {
-		// Ideally, we'd use h.service.flightService.GetFlight(ticket.FlightID)
-		// Assuming we can access repo:
+		defer wg.Done()
+		// We access flightRepo via the service.
+		// Note: In strict architecture, we might prefer a Service method like s.service.GetFlightInfo(...)
+		// but accessing the repo here works for this structure.
 		f, err := h.service.flightRepo.FindByID(ctx, ticket.FlightID)
 		if err != nil {
 			errChan <- err
 			return
 		}
-		flightChan <- f
+		resp.Flight = f
 	}()
 
-	// Goroutine B: Fetch Passenger (Mocking the fetch here, normally calling PassengerService)
-	go func() {
-		// In a real monolith, you might inject PassengerService into BookingHandler
-		// For now, we simulate a struct
-		p := map[string]any{
-			"id":     ticket.PassengerID,
-			"status": "fetched_via_goroutine",
-		}
-		passChan <- p
-	}()
+	wg.Wait()
+	close(errChan)
 
-	// Synchronization (Wait for both)
-	// We wait for 2 results (flight + passenger) or timeout/errors.
-	// Simple for-loop implementation:
-	for i := 0; i < 2; i++ {
-		select {
-		case f := <-flightChan:
-			resp.Flight = f
-		case p := <-passChan:
-			resp.Passenger = p
-		case err := <-errChan:
-			// Log error but maybe return partial content?
-			resp.Errors = append(resp.Errors, err.Error())
-		}
+	// Check if the goroutine reported an error (optional: could just return partial data)
+	if err := <-errChan; err != nil {
+		// Log error in production, maybe return partial response
 	}
 
-	// Return JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

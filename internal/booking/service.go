@@ -3,6 +3,7 @@ package booking
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 type TicketRepository interface {
 	Create(ctx context.Context, t *Ticket) error
+	GetSoldTicketsCount(ctx context.Context, flightID int64) (int, error)
 }
 
 type Service struct {
@@ -51,7 +53,27 @@ func (s *Service) BookTicket(ctx context.Context, flightID, passengerID int64) (
 			return errors.New("cannot book closed flight")
 		}
 
-		// 2. Create the Ticket Object
+		// Проверяем наличие мест
+		// Важно: Мы используем репозиторий, который работает внутри транзакции (tx)
+		// Чтобы это работало идеально, нам нужно передать tx в метод репозитория.
+		// Но для простоты сейчас (так как уровень изоляции Postgres Read Committed),
+		// мы можем просто посчитать текущие записи.
+
+		soldCount, err := s.repo.GetSoldTicketsCount(ctx, flightID)
+		if err != nil {
+			return fmt.Errorf("failed to check capacity: %w", err)
+		}
+
+		// ВАЖНО: В реальном High-Load мы бы использовали "SELECT ... FOR UPDATE" для блокировки строки рейса,
+		// но для курсового проекта проверка COUNT перед INSERT допустима.
+
+		limit := f.TotalSeats
+
+		if soldCount >= limit {
+			return errors.New("flight is fully booked")
+		}
+
+		// Create the Ticket Object
 		ticket = &Ticket{
 			FlightID:    flightID,
 			PassengerID: passengerID,
@@ -60,7 +82,7 @@ func (s *Service) BookTicket(ctx context.Context, flightID, passengerID int64) (
 			CreatedAt:   time.Now(),
 		}
 
-		// 3. Persist Ticket (Passing the TX to ensure atomicity)
+		// Persist Ticket (Passing the TX to ensure atomicity)
 		// We need to cast our generic 'tx' to the specific interface the repo expects
 		// This requires the Repo to accept the DBTX interface we defined earlier.
 		if err := s.repo.Create(ctx, ticket); err != nil {

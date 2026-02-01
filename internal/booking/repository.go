@@ -24,3 +24,18 @@ func (r *Repository) Create(ctx context.Context, t *Ticket) error {
 		t.FlightID, t.PassengerID, t.Price, t.Status, t.CreatedAt,
 	).Scan(&t.ID)
 }
+
+// GetSoldTicketsCount returns the number of active tickets for a flight
+func (r *Repository) GetSoldTicketsCount(ctx context.Context, flightID int64) (int, error) {
+	query := `
+		SELECT COUNT(*) 
+		FROM tickets 
+		WHERE flight_id = $1 AND status = 'ACTIVE'
+	`
+	var count int
+	err := r.db.QueryRow(ctx, query, flightID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}

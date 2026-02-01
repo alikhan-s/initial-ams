@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	// 1. Infrastructure
+	// Infrastructure
 	log := logger.New("dev", "DEBUG")
 	ctx := context.Background()
 
@@ -31,7 +31,7 @@ func main() {
 	// Transaction Manager
 	txManager := database.NewTxManager(pool)
 
-	// 2. Wiring Layers (Repo -> Service -> Handler)
+	// Wiring Layers (Repo -> Service -> Handler)
 
 	// Flight Module
 	flightRepo := flight.NewRepository(pool)
@@ -43,7 +43,7 @@ func main() {
 	bookingService := booking.NewService(bookingRepo, flightRepo, txManager, log)
 	bookingHandler := booking.NewHandler(bookingService)
 
-	// 3. Routing (Go 1.22 Standard Library)
+	// Routing (Go 1.22 Standard Library)
 	router := http.NewServeMux()
 
 	// Routes
@@ -51,13 +51,13 @@ func main() {
 	router.HandleFunc("GET /flights", flightHandler.Search)
 	router.HandleFunc("POST /bookings", bookingHandler.Create)
 
-	// 4. Server Start
+	// Server Start
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: router,
 	}
 
-	log.Info("Server starting on :8080")
+	log.Info("Server starting on http://localhost:8080")
 	if err := server.ListenAndServe(); err != nil {
 		log.Error("Server failed", "error", err)
 	}

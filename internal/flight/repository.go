@@ -31,8 +31,8 @@ func NewRepository(db DBTX) *Repository {
 
 func (r *Repository) Create(ctx context.Context, f *Flight) error {
 	query := `
-		INSERT INTO flights (flight_no, origin, destination, departure_time, arrival_time, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO flights (flight_no, origin, destination, departure_time, arrival_time, status, total_seats)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at, version
 	`
 	// Status defaults to SCHEDULED in DB, but good to be explicit
@@ -40,21 +40,26 @@ func (r *Repository) Create(ctx context.Context, f *Flight) error {
 		f.Status = StatusScheduled
 	}
 
+	// Set default if 0 (though DB has default 150, good to be explicit)
+	if f.TotalSeats == 0 {
+		f.TotalSeats = 150
+	}
+
 	return r.db.QueryRow(ctx, query,
-		f.FlightNo, f.Origin, f.Destination, f.DepartureTime, f.ArrivalTime, f.Status,
+		f.FlightNo, f.Origin, f.Destination, f.DepartureTime, f.ArrivalTime, f.Status, f.TotalSeats,
 	).Scan(&f.ID, &f.CreatedAt, &f.UpdatedAt, &f.Version)
 }
 
 func (r *Repository) FindByID(ctx context.Context, id int64) (*Flight, error) {
 	query := `
-		SELECT id, flight_no, origin, destination, gate_id, departure_time, arrival_time, status, version, created_at, updated_at
+		SELECT id, flight_no, origin, destination, gate_id, departure_time, arrival_time, status, total_seats, version, created_at, updated_at
 		FROM flights
 		WHERE id = $1
 	`
 	var f Flight
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&f.ID, &f.FlightNo, &f.Origin, &f.Destination, &f.GateID,
-		&f.DepartureTime, &f.ArrivalTime, &f.Status, &f.Version, &f.CreatedAt, &f.UpdatedAt,
+		&f.DepartureTime, &f.ArrivalTime, &f.Status, &f.TotalSeats, &f.Version, &f.CreatedAt, &f.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -97,7 +102,7 @@ func (r *Repository) Search(ctx context.Context, params SearchParams) ([]Flight,
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
 	query := `
-        SELECT id, flight_no, origin, destination, departure_time, arrival_time, status, gate_id
+        SELECT id, flight_no, origin, destination, departure_time, arrival_time, status, total_seats, gate_id
         FROM flights
         WHERE origin = $1 
         AND destination = $2 
@@ -117,7 +122,7 @@ func (r *Repository) Search(ctx context.Context, params SearchParams) ([]Flight,
 	for rows.Next() {
 		var f Flight
 		// Note: We scan into a temp struct or directly into the slice
-		if err := rows.Scan(&f.ID, &f.FlightNo, &f.Origin, &f.Destination, &f.DepartureTime, &f.ArrivalTime, &f.Status, &f.GateID); err != nil {
+		if err := rows.Scan(&f.ID, &f.FlightNo, &f.Origin, &f.Destination, &f.DepartureTime, &f.ArrivalTime, &f.Status, &f.TotalSeats, &f.GateID); err != nil {
 			return nil, err
 		}
 		flights = append(flights, f)

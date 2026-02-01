@@ -26,6 +26,7 @@ type Flight struct {
 	DepartureTime time.Time `json:"departure_time"`
 	ArrivalTime   time.Time `json:"arrival_time"`
 	Status        Status    `json:"status"`
+	TotalSeats    int       `json:"total_seats"`
 	Version       int       `json:"-"` // Internal version for optimistic locking
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`

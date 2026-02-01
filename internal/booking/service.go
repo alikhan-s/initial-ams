@@ -16,6 +16,8 @@ import (
 type TicketRepository interface {
 	Create(ctx context.Context, t *Ticket) error
 	GetSoldTicketsCount(ctx context.Context, flightID int64) (int, error)
+	FindByID(ctx context.Context, id int64) (*Ticket, error)
+	UpdateStatus(ctx context.Context, id int64, status string) error
 }
 
 type Service struct {
@@ -99,4 +101,22 @@ func (s *Service) BookTicket(ctx context.Context, flightID, passengerID int64) (
 
 	s.logger.Info("ticket created", "id", ticket.ID)
 	return ticket, nil
+}
+
+func (s *Service) GetTicket(ctx context.Context, id int64) (*Ticket, error) {
+	return s.repo.FindByID(ctx, id)
+}
+
+func (s *Service) CancelTicket(ctx context.Context, id int64) error {
+	// Fetch ticket to check current status
+	t, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.Status == "CANCELLED" {
+		return fmt.Errorf("ticket is already cancelled")
+	}
+
+	// Perform Update
+	return s.repo.UpdateStatus(ctx, id, "CANCELLED")
 }

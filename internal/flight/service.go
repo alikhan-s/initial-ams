@@ -63,3 +63,22 @@ func (s *Service) CreateFlight(ctx context.Context, params CreateFlightParams) (
 	s.logger.Info("flight created", "flight_no", flight.FlightNo, "id", flight.ID)
 	return flight, nil
 }
+
+// UpdateStatus updates the flight status while respecting optimistic locking.
+func (s *Service) UpdateStatus(ctx context.Context, id int64, status Status, version int) error {
+	if status == StatusScheduled {
+		return fmt.Errorf("cannot revert to SCHEDULED status once changed")
+	}
+
+	// Call Repo (which handles the version check)
+	if err := s.repo.UpdateStatus(ctx, id, status, version); err != nil {
+		if err == ErrConflict {
+			return fmt.Errorf("conflict: flight has been modified by another user (refresh data)")
+		}
+		s.logger.Error("failed to update flight status", "id", id, "error", err)
+		return err
+	}
+
+	s.logger.Info("flight status updated", "flight_id", id, "new_status", status)
+	return nil
+}

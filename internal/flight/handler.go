@@ -3,6 +3,7 @@ package flight
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -34,7 +35,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // Search handles GET /flights?origin=ALA&destination=TSE&date=2025-10-25
-// This function uses the "time" package, which fixes your import error
 func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	origin := r.URL.Query().Get("origin")
 	dest := r.URL.Query().Get("destination")
@@ -64,4 +64,36 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(flights)
+}
+
+type UpdateStatusRequest struct {
+	Status  Status `json:"status"`
+	Version int    `json:"version"` // Required for optimistic locking
+}
+
+func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
+	// Parse ID from query params (e.g. POST /flights/status?id=123)
+	// In a real router like Chi/Gorilla, this would be part of the URL path.
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		http.Error(w, "missing id parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Assuming a helper or simple conversion (omitted for brevity)
+	id, _ := strconv.ParseInt(idStr, 10, 64)
+
+	var req UpdateStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.UpdateStatus(r.Context(), id, req.Status, req.Version); err != nil {
+		// Return 409 Conflict if optimistic locking failed
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

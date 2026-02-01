@@ -5,53 +5,69 @@ import (
 	"net/http"
 	"os"
 
+	"initial-airport-management-system/internal/airportops"
 	"initial-airport-management-system/internal/booking"
 	"initial-airport-management-system/internal/flight"
+	"initial-airport-management-system/internal/passenger"
 	"initial-airport-management-system/internal/platform/database"
 	"initial-airport-management-system/internal/platform/logger"
 )
 
 func main() {
-	// Infrastructure
 	log := logger.New("dev", "DEBUG")
 	ctx := context.Background()
 
+	// Database
 	dbConfig := database.Config{
 		Host: "localhost", Port: "5432", User: "postgres",
 		Password: "123456", DBName: "airport_db", SSLMode: "disable",
 	}
-
 	pool, err := database.New(ctx, dbConfig)
 	if err != nil {
 		log.Error("cannot connect to db", "err", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
-
-	// Transaction Manager
 	txManager := database.NewTxManager(pool)
 
-	// Wiring Layers (Repo -> Service -> Handler)
-
-	// Flight Module
+	// Initialize Repositories
 	flightRepo := flight.NewRepository(pool)
-	flightService := flight.NewService(flightRepo, log)
-	flightHandler := flight.NewHandler(flightService)
-
-	// Booking Module (Needs FlightRepo + TxManager)
 	bookingRepo := booking.NewRepository(pool)
-	bookingService := booking.NewService(bookingRepo, flightRepo, txManager, log)
-	bookingHandler := booking.NewHandler(bookingService)
+	passengerRepo := passenger.NewRepository(pool)
+	opsRepo := airportops.NewRepository(pool)
 
-	// Routing (Go 1.22 Standard Library)
+	// Initialize Services
+	flightService := flight.NewService(flightRepo, log)
+	bookingService := booking.NewService(bookingRepo, flightRepo, txManager, log)
+	passengerService := passenger.NewService(passengerRepo, log)
+	opsService := airportops.NewService(opsRepo, log)
+
+	// Initialize Handlers
+	flightHandler := flight.NewHandler(flightService)
+	bookingHandler := booking.NewHandler(bookingService)
+	passengerHandler := passenger.NewHandler(passengerService)
+	opsHandler := airportops.NewHandler(opsService) // You'll need to create this handler file similar to others
+
+	// 5. Router (Standard Mux)
 	router := http.NewServeMux()
 
-	// Routes
+	// Flight Routes
 	router.HandleFunc("POST /flights", flightHandler.Create)
 	router.HandleFunc("GET /flights", flightHandler.Search)
-	router.HandleFunc("POST /bookings", bookingHandler.Create)
+	router.HandleFunc("POST /flights/status", flightHandler.UpdateStatus)
 
-	// Server Start
+	// Booking Routes
+	router.HandleFunc("POST /bookings", bookingHandler.Create)
+	router.HandleFunc("GET /bookings/details", bookingHandler.GetFullDetails) // The Goroutine endpoint
+
+	// Passenger Routes
+	router.HandleFunc("POST /passengers", passengerHandler.Create)
+	router.HandleFunc("GET /passengers", passengerHandler.Get)
+
+	// Ops Routes
+	// router.HandleFunc("POST /gates/assign", opsHandler.AssignGate) // Implement Handler first
+
+	// 6. Start Server
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: router,

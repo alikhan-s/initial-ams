@@ -3,6 +3,7 @@ package booking
 import (
 	"encoding/json"
 	"initial-airport-management-system/internal/flight"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -112,7 +113,7 @@ func (h *Handler) GetDetails(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the goroutine reported an error (optional: could just return partial data)
 	if err := <-errChan; err != nil {
-		// Log error in production, maybe return partial response
+		slog.Warn("failed to fetch flight details", "err", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

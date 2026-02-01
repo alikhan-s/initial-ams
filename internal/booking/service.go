@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"time"
-
 	"initial-airport-management-system/internal/flight"
 	"initial-airport-management-system/internal/platform/database"
+	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -40,35 +39,43 @@ func NewService(repo TicketRepository, flightRepo *flight.Repository, tx *databa
 func (s *Service) BookTicket(ctx context.Context, flightID, passengerID int64) (*Ticket, error) {
 	var ticket *Ticket
 
+	// The 'tx' variable here represents the active transaction
 	err := s.txManager.Run(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		// 1. Check Flight Status
-		f, err := s.flightRepo.FindByID(ctx, flightID)
+		// 1. Initialize repos that use THIS transaction
+		// Note: We create lightweight repo instances that share the transaction connection
+		txFlightRepo := flight.NewRepository(tx)
+		txBookingRepo := NewRepository(tx) // Assumes NewRepository is exported in booking package
+
+		// 2. Use the transactional repos for all logic
+		f, err := txFlightRepo.FindByID(ctx, flightID)
 		if err != nil {
 			return errors.New("flight not found")
 		}
+
 		if f.Status == flight.StatusCancelled || f.Status == flight.StatusDeparted {
 			return errors.New("cannot book closed flight")
 		}
 
-		// 2. Check Capacity
-		soldCount, err := s.repo.GetSoldTicketsCount(ctx, flightID)
+		// Check capacity using the TX repo (ensures consistency)
+		soldCount, err := txBookingRepo.GetSoldTicketsCount(ctx, flightID)
 		if err != nil {
 			return fmt.Errorf("failed to check capacity: %w", err)
 		}
+
 		if soldCount >= f.TotalSeats {
 			return errors.New("flight is fully booked")
 		}
 
-		// 3. Create Ticket
 		ticket = &Ticket{
 			FlightID:    flightID,
 			PassengerID: passengerID,
-			Price:       150.00, // Hardcoded for this milestone
+			Price:       150.00,
 			Status:      "ACTIVE",
 			CreatedAt:   time.Now(),
 		}
 
-		return s.repo.Create(ctx, ticket)
+		// Create ticket using the TX repo
+		return txBookingRepo.Create(ctx, ticket)
 	})
 
 	if err != nil {

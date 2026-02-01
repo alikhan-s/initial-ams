@@ -2,6 +2,7 @@ package airportops
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -29,6 +30,10 @@ func (h *Handler) CreateGate(w http.ResponseWriter, r *http.Request) {
 
 	gate, err := h.service.CreateGate(r.Context(), req.TerminalID, req.Code)
 	if err != nil {
+		if errors.Is(err, ErrGateAlreadyExists) {
+			http.Error(w, err.Error(), http.StatusConflict) // Return 409
+			return
+		}
 		http.Error(w, "Failed to create gate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

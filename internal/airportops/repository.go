@@ -2,8 +2,13 @@ package airportops
 
 import (
 	"context"
+	"errors"
 	"initial-airport-management-system/internal/flight"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+var ErrGateAlreadyExists = errors.New("gate with this code already exists in the terminal")
 
 type Repository struct {
 	db flight.DBTX
@@ -15,7 +20,17 @@ func NewRepository(db flight.DBTX) *Repository {
 
 func (r *Repository) CreateGate(ctx context.Context, g *Gate) error {
 	query := `INSERT INTO gates (terminal_id, code, status) VALUES ($1, $2, $3) RETURNING id`
-	return r.db.QueryRow(ctx, query, g.TerminalID, g.Code, g.Status).Scan(&g.ID)
+
+	err := r.db.QueryRow(ctx, query, g.TerminalID, g.Code, g.Status).Scan(&g.ID)
+	if err != nil {
+		// Check for Postgres Unique Violation (23505)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrGateAlreadyExists
+		}
+		return err
+	}
+	return nil
 }
 
 // AssignGateToFlight updates the flight table.

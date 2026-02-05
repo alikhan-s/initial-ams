@@ -48,7 +48,7 @@ func main() {
 	passengerHandler := passenger.NewHandler(passengerService)
 	opsHandler := airportops.NewHandler(opsService)
 
-	// 5. Router (Standard Mux)
+	// Router (Standard Mux)
 	router := http.NewServeMux()
 
 	// Flight Routes
@@ -58,7 +58,7 @@ func main() {
 
 	// Booking Routes
 	router.HandleFunc("POST /bookings", bookingHandler.Create)
-	router.HandleFunc("GET /bookings/details", bookingHandler.GetDetails) // The Goroutine endpoint
+	router.HandleFunc("GET /bookings/details", bookingHandler.GetDetails)
 	router.HandleFunc("POST /bookings/cancel", bookingHandler.Cancel)
 
 	// Passenger Routes

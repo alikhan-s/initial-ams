@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -32,7 +37,12 @@ func main() {
 		log.Error("cannot connect to db", "err", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
+	defer func() {
+		log.Info("Closing database connection pool...")
+		pool.Close()
+		log.Info("Database connection pool closed")
+	}()
+
 	txManager := database.NewTxManager(pool)
 
 	// Initializing Repositories
@@ -43,7 +53,6 @@ func main() {
 
 	// Initializing Services
 	flightService := flight.NewService(flightRepo, log)
-	// Booking Service требует flightRepo для проверки рейсов и txManager для транзакций
 	bookingService := booking.NewService(bookingRepo, flightRepo, txManager, log)
 	passengerService := passenger.NewService(passengerRepo, log)
 	opsService := airportops.NewService(opsRepo, log)
@@ -54,6 +63,7 @@ func main() {
 	passengerHandler := passenger.NewHandler(passengerService)
 	opsHandler := airportops.NewHandler(opsService)
 
+	// Setup Router
 	router := gin.Default()
 
 	v1 := router.Group("/api/v1")
@@ -89,8 +99,33 @@ func main() {
 		}
 	}
 
-	log.Info("Server starting on http://localhost:8080")
-	if err := router.Run(":8080"); err != nil {
-		log.Error("Server failed", "error", err)
+	// Server Configuration
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: router,
 	}
+
+	go func() {
+		log.Info("Server starting on http://localhost:8080")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("Server failed to start", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Graceful Shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	<-quit
+	log.Info("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Error("Server forced to shutdown", "error", err)
+	}
+
+	log.Info("Server exiting")
 }

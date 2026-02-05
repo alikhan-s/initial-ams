@@ -23,8 +23,8 @@ type CreateFlightParams struct {
 	FlightNo      string `json:"flight_no"`
 	Origin        string `json:"origin"`
 	Destination   string `json:"destination"`
-	DepartureTime string `json:"departure_time"` // Maps JSON "departure_time" to this field
-	ArrivalTime   string `json:"arrival_time"`   // Maps JSON "arrival_time" to this field
+	DepartureTime string `json:"departure_time"`
+	ArrivalTime   string `json:"arrival_time"`
 }
 
 func (s *Service) CreateFlight(ctx context.Context, params CreateFlightParams) (*Flight, error) {

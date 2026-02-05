@@ -11,7 +11,7 @@ import (
 
 var (
 	ErrNotFound = errors.New("flight not found")
-	ErrConflict = errors.New("flight version conflict") // For optimistic locking
+	ErrConflict = errors.New("flight version conflict")
 )
 
 // DBTX is an interface that matches both *pgxpool.Pool and pgx.Tx

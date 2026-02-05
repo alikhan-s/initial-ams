@@ -1,9 +1,10 @@
 package passenger
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
@@ -14,32 +15,36 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+// Create handles POST /api/v1/passengers
+func (h *Handler) Create(c *gin.Context) {
 	var p Passenger
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		http.Error(w, "invalid payload", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&p); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
 		return
 	}
-	if err := h.service.Create(r.Context(), &p); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+	if err := h.service.Create(c.Request.Context(), &p); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(p)
+
+	c.JSON(http.StatusCreated, p)
 }
 
-func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
+// Get handles GET /api/v1/passengers/:id
+func (h *Handler) Get(c *gin.Context) {
+	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id format"})
 		return
 	}
 
-	p, err := h.service.GetProfile(r.Context(), id)
+	p, err := h.service.GetProfile(c.Request.Context(), id)
 	if err != nil {
-		http.Error(w, "passenger not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Passenger not found"})
 		return
 	}
-	json.NewEncoder(w).Encode(p)
+
+	c.JSON(http.StatusOK, p)
 }

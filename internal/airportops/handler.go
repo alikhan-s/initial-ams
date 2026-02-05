@@ -1,9 +1,10 @@
 package airportops
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
@@ -14,54 +15,49 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// CreateGateParams defines the JSON payload for creating a gate
 type CreateGateParams struct {
 	TerminalID int64  `json:"terminal_id"`
 	Code       string `json:"code"`
 }
 
-// CreateGate handles POST /gates
-func (h *Handler) CreateGate(w http.ResponseWriter, r *http.Request) {
+// CreateGate handles POST /api/v1/gates
+func (h *Handler) CreateGate(c *gin.Context) {
 	var req CreateGateParams
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	gate, err := h.service.CreateGate(r.Context(), req.TerminalID, req.Code)
+	gate, err := h.service.CreateGate(c.Request.Context(), req.TerminalID, req.Code)
 	if err != nil {
 		if errors.Is(err, ErrGateAlreadyExists) {
-			http.Error(w, err.Error(), http.StatusConflict) // Return 409
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
-		http.Error(w, "Failed to create gate: "+err.Error(), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(gate)
+	c.JSON(http.StatusCreated, gate)
 }
 
-// AssignGateParams defines the JSON payload for assigning a gate
 type AssignGateParams struct {
 	FlightID int64 `json:"flight_id"`
 	GateID   int64 `json:"gate_id"`
 }
 
-// AssignGate handles POST /flights/gate
-func (h *Handler) AssignGate(w http.ResponseWriter, r *http.Request) {
+// AssignGate handles POST /api/v1/gates/assign
+func (h *Handler) AssignGate(c *gin.Context) {
 	var req AssignGateParams
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	if err := h.service.AssignGate(r.Context(), req.FlightID, req.GateID); err != nil {
-		http.Error(w, "Failed to assign gate: "+err.Error(), http.StatusInternalServerError)
+	if err := h.service.AssignGate(c.Request.Context(), req.FlightID, req.GateID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"gate assigned"}`))
+	c.JSON(http.StatusOK, gin.H{"status": "gate assigned"})
 }

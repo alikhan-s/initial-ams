@@ -1,12 +1,12 @@
 package booking
 
 import (
-	"encoding/json"
 	"initial-airport-management-system/internal/flight"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"sync"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
@@ -22,100 +22,71 @@ type BookRequest struct {
 	PassengerID int64 `json:"passenger_id"`
 }
 
-// Create handles POST /bookings
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+// Create handles POST /api/v1/bookings
+func (h *Handler) Create(c *gin.Context) {
 	var req BookRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	ticket, err := h.service.BookTicket(r.Context(), req.FlightID, req.PassengerID)
+	ticket, err := h.service.BookTicket(c.Request.Context(), req.FlightID, req.PassengerID)
 	if err != nil {
-		http.Error(w, "Failed to book ticket: "+err.Error(), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(ticket)
+	c.JSON(http.StatusCreated, ticket)
 }
 
-// Cancel handles POST /bookings/cancel?id=1
-func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
+// Cancel handles POST /api/v1/bookings/:id/cancel
+func (h *Handler) Cancel(c *gin.Context) {
+	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
-	if err := h.service.CancelTicket(r.Context(), id); err != nil {
-		http.Error(w, "Failed to cancel ticket: "+err.Error(), http.StatusInternalServerError)
+	if err := h.service.CancelTicket(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"cancelled"}`))
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
 
-// BookingDetailsResponse aggregates data from different sources
+// BookingDetailsResponse aggregates data
 type BookingDetailsResponse struct {
 	Ticket *Ticket        `json:"ticket"`
 	Flight *flight.Flight `json:"flight,omitempty"`
 }
 
-// GetDetails handles GET /bookings/details?id=1
-// It demonstrates using Goroutines to fetch related data (Flight) in parallel.
-func (h *Handler) GetDetails(w http.ResponseWriter, r *http.Request) {
-	// Parse ID
-	idStr := r.URL.Query().Get("id")
+// GetDetails handles GET /api/v1/bookings/:id
+func (h *Handler) GetDetails(c *gin.Context) {
+	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
-	ctx := r.Context()
+	ctx := c.Request.Context()
 
-	// Fetch Ticket (Synchronous - we need this to know WHICH flight to fetch)
 	ticket, err := h.service.GetTicket(ctx, id)
 	if err != nil {
-		http.Error(w, "Ticket not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Ticket not found"})
 		return
 	}
 
 	resp := BookingDetailsResponse{Ticket: ticket}
 
-	// Parallel Fetching: Fetch Flight data in a Goroutine
-	// Since BookingService has access to FlightRepo, we can use it.
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	// Channel to capture errors from goroutines
-	errChan := make(chan error, 1)
-
-	go func() {
-		defer wg.Done()
-		// We access flightRepo via the service.
-		// Note: In strict architecture, we might prefer a Service method like s.service.GetFlightInfo(...)
-		// but accessing the repo here works for this structure.
-		f, err := h.service.flightRepo.FindByID(ctx, ticket.FlightID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		resp.Flight = f
-	}()
-
-	wg.Wait()
-	close(errChan)
-
-	// Check if the goroutine reported an error (optional: could just return partial data)
-	if err := <-errChan; err != nil {
+	flightInf, err := h.service.flightRepo.FindByID(ctx, ticket.FlightID)
+	if err != nil {
 		slog.Warn("failed to fetch flight details", "err", err)
+	} else {
+		resp.Flight = flightInf
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	c.JSON(http.StatusOK, resp)
 }

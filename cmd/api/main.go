@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
-	"net/http"
+	"log/slog"
 	"os"
+
+	"github.com/gin-gonic/gin"
 
 	"initial-airport-management-system/internal/airportops"
 	"initial-airport-management-system/internal/booking"
@@ -14,10 +16,13 @@ import (
 )
 
 func main() {
+	// Initializing Logger
 	log := logger.New("dev", "DEBUG")
+	slog.SetDefault(log)
+
 	ctx := context.Background()
 
-	// Database
+	// Database Connection
 	dbConfig := database.Config{
 		Host: "localhost", Port: "5432", User: "postgres",
 		Password: "123456", DBName: "airport_db", SSLMode: "disable",
@@ -30,53 +35,62 @@ func main() {
 	defer pool.Close()
 	txManager := database.NewTxManager(pool)
 
-	// Initialize Repositories
+	// Initializing Repositories
 	flightRepo := flight.NewRepository(pool)
 	bookingRepo := booking.NewRepository(pool)
 	passengerRepo := passenger.NewRepository(pool)
 	opsRepo := airportops.NewRepository(pool)
 
-	// Initialize Services
+	// Initializing Services
 	flightService := flight.NewService(flightRepo, log)
+	// Booking Service требует flightRepo для проверки рейсов и txManager для транзакций
 	bookingService := booking.NewService(bookingRepo, flightRepo, txManager, log)
 	passengerService := passenger.NewService(passengerRepo, log)
 	opsService := airportops.NewService(opsRepo, log)
 
-	// Initialize Handlers
+	// Initializing Handlers
 	flightHandler := flight.NewHandler(flightService)
 	bookingHandler := booking.NewHandler(bookingService)
 	passengerHandler := passenger.NewHandler(passengerService)
 	opsHandler := airportops.NewHandler(opsService)
 
-	// Router (Standard Mux)
-	router := http.NewServeMux()
+	router := gin.Default()
 
-	// Flight Routes
-	router.HandleFunc("POST /flights", flightHandler.Create)
-	router.HandleFunc("GET /flights", flightHandler.Search)
-	router.HandleFunc("POST /flights/status", flightHandler.UpdateStatus)
+	v1 := router.Group("/api/v1")
+	{
+		// FLIGHTS
+		flights := v1.Group("/flights")
+		{
+			flights.POST("", flightHandler.Create)
+			flights.GET("", flightHandler.Search)
+			flights.PATCH("/:id/status", flightHandler.UpdateStatus)
+		}
 
-	// Booking Routes
-	router.HandleFunc("POST /bookings", bookingHandler.Create)
-	router.HandleFunc("GET /bookings/details", bookingHandler.GetDetails)
-	router.HandleFunc("POST /bookings/cancel", bookingHandler.Cancel)
+		// BOOKINGS
+		bookings := v1.Group("/bookings")
+		{
+			bookings.POST("", bookingHandler.Create)
+			bookings.GET("/:id", bookingHandler.GetDetails)
+			bookings.POST("/:id/cancel", bookingHandler.Cancel)
+		}
 
-	// Passenger Routes
-	router.HandleFunc("POST /passengers", passengerHandler.Create)
-	router.HandleFunc("GET /passengers", passengerHandler.Get)
+		// PASSENGERS
+		passengers := v1.Group("/passengers")
+		{
+			passengers.POST("", passengerHandler.Create)
+			passengers.GET("/:id", passengerHandler.Get)
+		}
 
-	// Ops Routes
-	router.HandleFunc("POST /gates", opsHandler.CreateGate)
-	router.HandleFunc("POST /gates/assign", opsHandler.AssignGate)
-
-	// Start Server
-	server := &http.Server{
-		Addr:    ":8080",
-		Handler: router,
+		// GATES (OPS)
+		gates := v1.Group("/gates")
+		{
+			gates.POST("", opsHandler.CreateGate)
+			gates.POST("/assign", opsHandler.AssignGate)
+		}
 	}
 
 	log.Info("Server starting on http://localhost:8080")
-	if err := server.ListenAndServe(); err != nil {
+	if err := router.Run(":8080"); err != nil {
 		log.Error("Server failed", "error", err)
 	}
 }

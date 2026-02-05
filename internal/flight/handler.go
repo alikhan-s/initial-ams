@@ -1,10 +1,11 @@
 package flight
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
@@ -15,85 +16,77 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// Create handles POST /flights
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+// Create handles POST /api/v1/flights
+func (h *Handler) Create(c *gin.Context) {
 	var req CreateFlightParams
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	flight, err := h.service.CreateFlight(r.Context(), req)
+	flight, err := h.service.CreateFlight(c.Request.Context(), req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(flight)
+	c.JSON(http.StatusCreated, flight)
 }
 
-// Search handles GET /flights?origin=ALA&destination=TSE&date=2025-10-25
-func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
-	origin := r.URL.Query().Get("origin")
-	dest := r.URL.Query().Get("destination")
-	dateStr := r.URL.Query().Get("date")
+// Search handles GET /api/v1/flights?origin=GUW&destination=TSE&date=2025-10-25
+func (h *Handler) Search(c *gin.Context) {
+	origin := c.Query("origin")
+	dest := c.Query("destination")
+	dateStr := c.Query("date")
 
 	if origin == "" || dest == "" || dateStr == "" {
-		http.Error(w, "Missing origin, destination, or date", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing origin, destination, or date"})
 		return
 	}
 
-	// Usage of "time" package here
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		http.Error(w, "Invalid date format (use YYYY-MM-DD)", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format (use YYYY-MM-DD)"})
 		return
 	}
 
-	flights, err := h.service.repo.Search(r.Context(), SearchParams{
+	flights, err := h.service.repo.Search(c.Request.Context(), SearchParams{
 		Origin:      origin,
 		Destination: dest,
 		Date:        date,
 	})
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(flights)
+	c.JSON(http.StatusOK, flights)
 }
 
 type UpdateStatusRequest struct {
 	Status  Status `json:"status"`
-	Version int    `json:"version"` // Required for optimistic locking
+	Version int    `json:"version"`
 }
 
-func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
-	// Parse ID from query params (e.g. POST /flights/status?id=123)
-	// In a real router like Chi/Gorilla, this would be part of the URL path.
-	idStr := r.URL.Query().Get("id")
-	if idStr == "" {
-		http.Error(w, "missing id parameter", http.StatusBadRequest)
+// UpdateStatus handles PATCH /api/v1/flights/:id/status
+func (h *Handler) UpdateStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid flight ID"})
 		return
 	}
-
-	// Assuming a helper or simple conversion (omitted for brevity)
-	id, _ := strconv.ParseInt(idStr, 10, 64)
 
 	var req UpdateStatusRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid body"})
 		return
 	}
 
-	if err := h.service.UpdateStatus(r.Context(), id, req.Status, req.Version); err != nil {
-		// Return 409 Conflict if optimistic locking failed
-		http.Error(w, err.Error(), http.StatusConflict)
+	if err := h.service.UpdateStatus(c.Request.Context(), id, req.Status, req.Version); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMS Client</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .section-card { display: none; }
+        .section-card.active { display: block; }
+        .cursor-pointer { cursor: pointer; }
+    </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+    <div class="container">
+        <a class="navbar-brand" href="#">Airport Management</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item"><a class="nav-link active" href="#" data-section="passengers">Пассажиры</a></li>
+                <li class="nav-item"><a class="nav-link" href="#" data-section="flights">Полеты & Поиск</a></li>
+                <li class="nav-item"><a class="nav-link" href="#" data-section="bookings">Мои Бронирования</a></li>
+                <li class="nav-item"><a class="nav-link" href="#" data-section="admin">Админка / Ops</a></li>
+            </ul>
+            <div class="d-flex text-white align-items-center">
+                <small class="me-2">Текущий ID Пассажира:</small>
+                <input type="number" id="currentPassengerId" class="form-control form-control-sm" style="width: 80px;" value="1" placeholder="ID">
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <strong class="me-auto">Система</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="toastMessage"></div>
+        </div>
+    </div>
+
+    <div id="passengers" class="section-card active">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><h5>Регистрация Пассажира</h5></div>
+            <div class="card-body">
+                <form id="createPassengerForm">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">User ID (Simulated)</label>
+                            <input type="number" class="form-control" name="user_id" required placeholder="e.g. 101">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Passport No</label>
+                            <input type="text" class="form-control" name="passport_no" required placeholder="N0012345">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Phone</label>
+                            <input type="text" class="form-control" name="phone" required placeholder="+7700...">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-3">Создать Профиль</button>
+                </form>
+                <hr>
+                <div class="input-group mb-3" style="max-width: 400px;">
+                    <input type="number" id="searchPassengerId" class="form-control" placeholder="Найти по ID">
+                    <button class="btn btn-outline-secondary" type="button" id="btnGetPassenger">Найти</button>
+                </div>
+                <div id="passengerResult" class="alert alert-info d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="flights" class="section-card">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white"><h5>Поиск Рейсов</h5></div>
+            <div class="card-body">
+                <form id="searchFlightForm">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">Откуда (Origin)</label>
+                            <input type="text" class="form-control" id="searchOrigin" value="NQZ" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Куда (Dest)</label>
+                            <input type="text" class="form-control" id="searchDest" value="GUW" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Дата</label>
+                            <input type="date" class="form-control" id="searchDate" required>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-success w-100">Найти</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="flightsList" class="row">
+            <div class="col-12 text-center text-muted py-5">Нет результатов поиска</div>
+        </div>
+    </div>
+
+    <div id="bookings" class="section-card">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><h5>Управление Бронированием</h5></div>
+            <div class="card-body">
+                <div class="input-group mb-3" style="max-width: 400px;">
+                    <input type="number" id="ticketIdInput" class="form-control" placeholder="ID Билета">
+                    <button class="btn btn-primary" id="btnGetTicket">Загрузить</button>
+                </div>
+
+                <div id="ticketDetailsCard" class="card d-none border-info">
+                    <div class="card-body">
+                        <h5 class="card-title">Билет #<span id="t-id"></span></h5>
+                        <p class="card-text">
+                            <strong>Статус:</strong> <span id="t-status" class="badge bg-secondary"></span><br>
+                            <strong>Рейс:</strong> <span id="t-flight"></span><br>
+                            <strong>Маршрут:</strong> <span id="t-route"></span><br>
+                            <strong>Цена:</strong> <span id="t-price"></span>
+                        </p>
+                        <button id="btnCancelTicket" class="btn btn-danger">Отменить Бронирование</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="admin" class="section-card">
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-header">Создать Рейс (Flight)</div>
+                    <div class="card-body">
+                        <form id="createFlightForm">
+                            <div class="mb-2"><input type="text" class="form-control" name="flight_no" placeholder="Номер (e.g. KC-999)" required></div>
+                            <div class="row g-2 mb-2">
+                                <div class="col"><input type="text" class="form-control" name="origin" placeholder="Origin" required></div>
+                                <div class="col"><input type="text" class="form-control" name="destination" placeholder="Dest" required></div>
+                            </div>
+                            <div class="mb-2"><label>Вылет:</label><input type="datetime-local" class="form-control" name="departure_time" required></div>
+                            <div class="mb-2"><label>Прилет:</label><input type="datetime-local" class="form-control" name="arrival_time" required></div>
+                            <button type="submit" class="btn btn-dark w-100">Создать Рейс</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-3">
+                <div class="card mb-3">
+                    <div class="card-header">Создать Гейт</div>
+                    <div class="card-body">
+                        <form id="createGateForm" class="d-flex gap-2">
+                            <input type="number" name="terminal_id" class="form-control" placeholder="Term ID" required>
+                            <input type="text" name="code" class="form-control" placeholder="Code (A1)" required>
+                            <button class="btn btn-warning">Создать</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Назначить Гейт</div>
+                    <div class="card-body">
+                        <form id="assignGateForm" class="d-flex gap-2">
+                            <input type="number" name="flight_id" class="form-control" placeholder="Flight ID" required>
+                            <input type="number" name="gate_id" class="form-control" placeholder="Gate ID" required>
+                            <button class="btn btn-info">Назначить</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header">Обновить Статус Рейса</div>
+                    <div class="card-body">
+                        <form id="updateStatusForm" class="row g-2">
+                            <div class="col-4"><input type="number" name="id" class="form-control" placeholder="F-ID" required></div>
+                            <div class="col-4">
+                                <select name="status" class="form-select">
+                                    <option value="DELAYED">Delayed</option>
+                                    <option value="BOARDING">Boarding</option>
+                                    <option value="DEPARTED">Departed</option>
+                                    <option value="CANCELLED">Cancelled</option>
+                                </select>
+                            </div>
+                            <div class="col-4"><input type="number" name="version" class="form-control" placeholder="Ver" value="1" required></div>
+                            <button class="btn btn-secondary w-100 mt-2">Обновить</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
